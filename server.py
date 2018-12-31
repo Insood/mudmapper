@@ -1,28 +1,32 @@
 import asyncio
-import socket
+import getopt
 import re
+import socket
+import sys
 from enum import Enum
 
-class RoomStatus(Enum):
-    VISITED = 1
-    UNVISITED = 2
+MAP_HEIGHT = 20
+MAP_WIDTH = 20
 
 class Room:
-    def __init__(self,name,x,y, visisted):
+    def __init__(self,name,x,y):
         self.name = name
+        self.visisted = False
+        self.exits = []
         self.x = x
         self.y = y
-        self.visisted = visisted
-        self.exits = []
 
-    def __eq__(self,other):
-        pass
+    def create_unvisited_exit(self,name, destination_room):
+        e = Exit(self, destination_room, name)
+        self.exits.append(e)
+        return e
 
 class Exit:
     def __init__(self, src_room, dest_room, name):
         self.name = name
         self.src_room = src_room
         self.dest_room = dest_room
+        self.used = False
 
 class Matrix:
     def __init__(self, width, height):
@@ -38,24 +42,62 @@ class Matrix:
         i = self.offset(x,y)
         return self.elements[i]
 
-    def set(self, x,y, value):
+    def add(self, x,y, value):
         i = self.offset(x,y)
-        self.elements[i] = value
+        if self.elements[i]:
+            self.elements[i].append(value)
+        else:
+            self.elements[i] = [value]
+
+    def count(self):
+        counter = 0
+        for room in self.elements:
+            if room:
+                counter += 1
+        return counter
 
 class Map:
     def __init__(self):
         self.rooms = []
         self.exits = []
         self.current_room = None
+        self.matrix = Matrix(MAP_WIDTH,MAP_HEIGHT)
 
-    def add_room(self, room_name, exits_array):
-        r = Room()
+    def create_room(self,room_name, x,y):
+        r = Room(room_name,x,y)
+        self.matrix.set(x,y,r)
+        return r
+
+    def process_exits(self, room, exits):
+        exits_copy = exits.copy()
+        defined_exits = { "west": [-1,0],
+                          "northwest": [-1,1],
+                          "north": [0,-1],
+                          "northeast": [1,-1],
+                          "east":[1,0],
+                          "southeast": [1,1],
+                          "south": [0,1],
+                          "southwest": [-1,1]}
+
+        unprocessed_exits = []
+        while exits_copy.length > 0:
+            exit = exits_copy.pop()
+            if exit in defined_exits:
+                x_offset, y_offset = defined_exits[exit]
+                new_room = self.create_room("Unknown", room.x + x_offset, room.y + y_offset)
+                room.create_unvisited_exit(exit, new_room)
+            else:
+                unprocessed_exits.append(exit)
+
+    def initial_room(self, room_name, exits):
+        x = MAP_WIDTH/2
+        y = MAP_HEIGHT/2
+        self.create_room(room_name, x,y)
 
     def find_room(self, room_name, exits_array):
         candidates = list(filter(lambda room: room.name == room_name, self.rooms))
         if len(candidates) == 0:
             return None
-        
 
 class DataHandler(asyncio.Protocol):
     def __init__(self,map):
@@ -138,6 +180,26 @@ class MapServer:
         loop.run_until_complete(server.wait_closed())
         loop.close()
 
+class TestMode:
+    def __init__(self):
+        pass
+
+    def start(self):
+        pass
+
 if __name__=="__main__":
-    m = MapServer("localhost","9999")
-    m.start()
+    if len(sys.argv) == 2:
+        opt = sys.argv[1]
+    else:
+        opt = None
+        
+    if opt == "s":
+        m = MapServer("localhost","9999")
+        m.start()
+    elif opt == "t":
+        t = TestMode()
+        t.start()
+    else:
+        print("Invalid command line option")
+        print("%s s - Start the mapping server"%sys.argv[0])
+        print("%s t - Start test mode"%sys.argv[0])
